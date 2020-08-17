@@ -3,6 +3,7 @@ package botutil
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	dg "github.com/bwmarrin/discordgo"
 	"net/http"
 	"strconv"
@@ -18,16 +19,59 @@ type Embed struct {
 	*dg.MessageEmbed
 }
 
+// embedError error structure
+type embedError struct {
+	failingArgument string
+	argumentLength int
+	maxValue int
+}
+
+
 // Constants for message embed character limits
 const (
-	EmbedLimitTitle       = 256
-	EmbedLimitDescription = 2048
-	EmbedLimitFieldValue  = 1024
-	EmbedLimitFieldName   = 256
-	EmbedLimitField       = 25
-	EmbedLimitFooter      = 2048
-	EmbedLimit            = 4000
+	embedLimitTitle       = 256
+	embedLimitDescription = 2048
+	embedLimitFieldValue  = 1024
+	embedLimitFieldName   = 256
+	embedLimitField       = 25
+	embedLimitFooter      = 2048
 )
+
+func (err *embedError) Error() string {
+	return fmt.Sprintf("%s with length %b exceeded character limit of %b.",
+		err.failingArgument, err.argumentLength, err.maxValue)
+}
+
+func verifyEmbed(e *dg.MessageEmbed) error {
+	if len(e.Title) > embedLimitTitle {
+		return &embedError{"Title", len(e.Title), embedLimitTitle}
+	}
+
+	if len(e.Description) > embedLimitDescription {
+		return &embedError{"Description", len(e.Description), embedLimitDescription}
+	}
+
+	if len(e.Fields) > embedLimitField {
+		return &embedError{"Fields", len(e.Fields), embedLimitField}
+	}
+
+	if len(e.Footer.Text) > embedLimitFooter {
+		return &embedError{"Footer", len(e.Footer.Text), embedLimitFooter}
+	}
+
+	for i := range e.Fields {
+		embedField := e.Fields[i]
+		if len(embedField.Value) > embedLimitFieldValue {
+			return &embedError{"Value", len(embedField.Value), embedLimitFieldValue}
+		}
+
+		if len(embedField.Name) > embedLimitFieldName {
+			return &embedError{"Name", len(embedField.Name), embedLimitFieldName}
+		}
+	}
+
+	return nil
+}
 
 // NewEmbed returns a new embed object
 func NewEmbed() *Embed {
@@ -37,32 +81,18 @@ func NewEmbed() *Embed {
 // SetTitle takes <Title string>
 // Sets embed with title set <Title>
 func (e *Embed) SetTitle(Title string) {
-	if len(Title) > EmbedLimitTitle {
-		Title = Title[:EmbedLimitTitle]
-	}
 	e.Title = Title
 }
 
 // SetDescription takes <Description string>
 // Sets embed with description set <Description>
 func (e *Embed) SetDescription(Description string) {
-	if len(Description) > EmbedLimitDescription {
-		Description = Description[:EmbedLimitDescription]
-	}
 	e.Description = Description
 }
 
 // AddField takes <Name string> <Value string> <Inline bool>
 // Returns an embed with embed field set <Name> <Value> <Inline>
 func (e *Embed) AddField(Name string, Value string, Inline bool) {
-	if len(Value) > EmbedLimitFieldValue {
-		Value = Value[:EmbedLimitFieldValue]
-	}
-
-	if len(Name) > EmbedLimitFieldName {
-		Name = Name[:EmbedLimitFieldName]
-	}
-
 	EmbedField := dg.MessageEmbedField{
 		Name:   Name,
 		Value:  Value,
@@ -75,10 +105,6 @@ func (e *Embed) AddField(Name string, Value string, Inline bool) {
 // SetFooter takes <IconURL string> <Text string>
 // Sets embed with embed footer set <Iconurl> <Text>
 func (e *Embed) SetFooter(IconURL string, Text string) {
-	if len(Text) > EmbedLimitFooter {
-		Text = Text[:EmbedLimitFooter]
-	}
-
 	e.Footer = &dg.MessageEmbedFooter{
 		IconURL: IconURL,
 		Text:    Text,
@@ -141,16 +167,15 @@ func (e *Embed) InlineAllFields() *Embed {
 }
 
 // Truncate truncates the number of embed fields over the character limit.
-// Rest of truncation is done on function call
 func (e *Embed) Truncate() *Embed {
-	e.TruncateFields()
+	e.truncateFields()
 	return e
 }
 
 // TruncateFields truncates fields that are too long
-func (e *Embed) TruncateFields() *Embed {
-	if len(e.Fields) > 25 {
-		e.Fields = e.Fields[:EmbedLimitField]
+func (e *Embed) truncateFields() *Embed {
+	if len(e.Fields) > embedLimitField {
+		e.Fields = e.Fields[:embedLimitField]
 	}
 	return e
 }
@@ -159,6 +184,12 @@ func (e *Embed) TruncateFields() *Embed {
 // Sends embed to webhook
 // Returns error if invalid embed or error posting to webhook
 func (e *Embed) SendToWebhook(Webhook string) error {
+	err := verifyEmbed(e.MessageEmbed)
+
+	if err != nil {
+		return err
+	}
+
 	embedArray := append(make([]*dg.MessageEmbed, 0), e.MessageEmbed)
 	params := dg.WebhookParams{
 		Embeds: embedArray,
@@ -175,4 +206,32 @@ func (e *Embed) SendToWebhook(Webhook string) error {
 	}
 
 	return nil
+}
+
+// SendToChannel takes <s *dg.Session>, <channelID string>
+// Verifies embed and sends embed to channel
+// Returns message and error
+func (e *Embed) SendToChannel(s *dg.Session, channelID string) (*dg.Message, error) {
+	err := verifyEmbed(e.MessageEmbed)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return s.ChannelMessageSendComplex(channelID, &dg.MessageSend{
+		Embed: e.MessageEmbed,
+	})
+}
+
+// ChannelMessageEditEmbed takes <s *dg.Session>, <channelID string>, <messageID string>
+// Verifies embed and edits message with new embed
+// Returns message and error
+func (e *Embed) ChannelMessageEditEmbed(s *dg.Session, channelID string, messageID string) (*dg.Message, error) {
+	err := verifyEmbed(e.MessageEmbed)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return s.ChannelMessageEditComplex(dg.NewMessageEdit(messageID, channelID).SetEmbed(e.MessageEmbed))
 }
