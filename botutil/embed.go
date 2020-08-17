@@ -10,10 +10,6 @@ import (
 	"strings"
 )
 
-// Everything here is mainly stolen from https://gist.github.com/Necroforger/8b0b70b1a69fa7828b8ad6387ebb3835
-// Then changed to actually function properly.
-// Reason: I was writing this, searched for constants and discovered someone already invented the wheel.
-
 // Embed structure
 type Embed struct {
 	*dg.MessageEmbed
@@ -25,7 +21,6 @@ type embedError struct {
 	argumentLength int
 	maxValue int
 }
-
 
 // Constants for message embed character limits
 const (
