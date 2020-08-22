@@ -6,8 +6,6 @@ import (
 	"fmt"
 	dg "github.com/bwmarrin/discordgo"
 	"net/http"
-	"strconv"
-	"strings"
 )
 
 // Embed structure
@@ -33,11 +31,11 @@ const (
 )
 
 func (err *embedError) Error() string {
-	return fmt.Sprintf("%s with length %b exceeded character limit of %b.",
+	return fmt.Sprintf("%s with length %v exceeded character limit of %v.",
 		err.failingArgument, err.argumentLength, err.maxValue)
 }
 
-func verifyEmbed(e *dg.MessageEmbed) error {
+func VerifyEmbed(e *dg.MessageEmbed) error {
 	if len(e.Title) > embedLimitTitle {
 		return &embedError{"Title", len(e.Title), embedLimitTitle}
 	}
@@ -50,8 +48,10 @@ func verifyEmbed(e *dg.MessageEmbed) error {
 		return &embedError{"Fields", len(e.Fields), embedLimitField}
 	}
 
-	if len(e.Footer.Text) > embedLimitFooter {
-		return &embedError{"Footer", len(e.Footer.Text), embedLimitFooter}
+	if e.Footer != nil {
+		if len(e.Footer.Text) > embedLimitFooter {
+			return &embedError{"Footer", len(e.Footer.Text), embedLimitFooter}
+		}
 	}
 
 	for i := range e.Fields {
@@ -141,16 +141,8 @@ func (e *Embed) SetURL(URL string) {
 // SetColor takes <Color string>
 // Sets color of embed to <Color>
 // Returns error
-func (e *Embed) SetColor(Color string) error {
-	Color = strings.Replace(Color, "0x", "", -1)
-	Color = strings.Replace(Color, "0X", "", -1)
-	Color = strings.Replace(Color, "#", "", -1)
-	ColorInt, err := strconv.Atoi(Color)
-	if err != nil {
-		return err
-	}
-	e.Color = ColorInt
-	return nil
+func (e *Embed) SetColor(ColorByte int) {
+	e.Color = ColorByte
 }
 
 // InlineAllFields sets all fields in the embed to be inline
@@ -179,7 +171,7 @@ func (e *Embed) truncateFields() *Embed {
 // Sends embed to webhook
 // Returns error if invalid embed or error posting to webhook
 func (e *Embed) SendToWebhook(Webhook string) error {
-	err := verifyEmbed(e.MessageEmbed)
+	err := VerifyEmbed(e.MessageEmbed)
 
 	if err != nil {
 		return err
@@ -207,7 +199,7 @@ func (e *Embed) SendToWebhook(Webhook string) error {
 // Verifies embed and sends embed to channel
 // Returns message and error
 func (e *Embed) SendToChannel(s *dg.Session, channelID string) (*dg.Message, error) {
-	err := verifyEmbed(e.MessageEmbed)
+	err := VerifyEmbed(e.MessageEmbed)
 
 	if err != nil {
 		return nil, err
@@ -222,11 +214,15 @@ func (e *Embed) SendToChannel(s *dg.Session, channelID string) (*dg.Message, err
 // Verifies embed and edits message with new embed
 // Returns message and error
 func (e *Embed) ChannelMessageEditEmbed(s *dg.Session, channelID string, messageID string) (*dg.Message, error) {
-	err := verifyEmbed(e.MessageEmbed)
+	err := VerifyEmbed(e.MessageEmbed)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return s.ChannelMessageEditComplex(dg.NewMessageEdit(messageID, channelID).SetEmbed(e.MessageEmbed))
+	return s.ChannelMessageEditComplex(&dg.MessageEdit{
+		Embed:           e.MessageEmbed,
+		ID:              messageID,
+		Channel:         channelID,
+	})
 }
